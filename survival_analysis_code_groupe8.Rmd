@@ -1,0 +1,675 @@
+---
+title: "Survival Analysis for telecom Customer Churn"
+output: html_document
+authors:  "Zakaria Bouhia","Eya Midouni","Maryam Teymouri","Oubeid Gharbi"
+---
+
+
+This R Markdown document outlines the steps involved in implementing the Survival Analysis project for telecom Customer Churn.
+
+
+# Set up work environment
+
+# Install required packages
+required_packages <- c("tidyverse", "janitor", "survival", "survminer", "tidyquant", "patchwork", "ggplot2", "ggcorrplot", "missForest")
+new_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+
+if(length(new_packages)) install.packages(new_packages)
+
+```{r setup, include=FALSE}
+# Load required libraries
+library(tidyverse)
+library(janitor)
+library(survival)
+library(survminer)
+library(tidyquant)
+library(patchwork)
+library(ggplot2)
+library(ggcorrplot)
+library(missForest)
+```
+
+
+#Understanding and Preparing the Data
+
+This dataset is designed to analyze customer churn in a telecommunications company. Each record represents a unique customer and includes various features related to their subscription and usage patterns. The dataset is structured as follows:
+
+-CustomerID: A unique identifier assigned to each customer.
+-Gender: The gender of the customer (Male or Female).
+-SeniorCitizen: Indicates whether the customer is a senior citizen (1 for Yes, 0 for No).
+-Partner: Indicates if the customer has a partner (Yes or No).
+-Dependents: Indicates if the customer has dependents (Yes or No).
+-Tenure: The number of months the customer has been with the company.
+-PhoneService: Indicates if the customer has a phone service (Yes or No).
+-MultipleLines: Indicates if the customer has multiple lines (Yes, No, or No phone service).
+-InternetService: The type of internet service the customer has (DSL, Fiber optic, or No).
+-OnlineSecurity: Indicates if the customer has online security (Yes, No, or No internet service).
+-OnlineBackup: Indicates if the customer has online backup (Yes, No, or No internet service).
+-DeviceProtection: Indicates if the customer has device protection (Yes, No, or No internet service).
+-TechSupport: Indicates if the customer has tech support (Yes, No, or No internet service).
+-StreamingTV: Indicates if the customer has streaming TV (Yes, No, or No internet service).
+-StreamingMovies: Indicates if the customer has streaming movies (Yes, No, or No internet service).
+-Contract: The type of contract the customer is on (Month-to-month, One year, or Two year).
+-PaperlessBilling: Indicates if the customer uses paperless billing (Yes or No).
+-PaymentMethod: The method of payment used by the customer (Electronic check, Mailed check, Bank transfer (automatic), Credit card (automatic)).
+-MonthlyCharges: The amount charged to the customer monthly.
+-TotalCharges: The total amount charged to the customer over their tenure.
+-Churn: Indicates whether the customer has churned (Yes or No), which is the target variable for analysis.
+
+```{r}
+#load data
+telecom_churn_raw <- read_csv("C:/Users/33751/Desktop/DSTI_course/survival_alaysis/Telco-Customer-Churn.csv") 
+head(telecom_churn_raw)
+```
+
+
+
+```{r}
+# Get the dimensions of the dataset
+dimensions <- dim(telecom_churn_raw)
+print(dimensions)
+
+```
+
+```{r}
+str(telecom_churn_raw, give.attr = FALSE)
+```
+```{r}
+# Removing the customerID column from the dataset
+telecom_churn_raw <- telecom_churn_raw %>% select(-customerID)
+```
+
+
+```{r}
+# Check for missing values in the dataset
+missing_values <- colSums(is.na(telecom_churn_raw))
+print(missing_values)
+
+```
+
+## Process the missing values 
+```{r}
+# Check number of missing values in TotalCharges
+sum(is.na(telecom_churn_raw$TotalCharges)) 
+
+```
+ 
+```{r}
+#we can delete these rows to handle the missing values 
+telecom_churn_data <- telecom_churn_raw[!is.na(telecom_churn_raw$TotalCharges), ]
+
+```
+
+```{r}
+# Check number of missing values in TotalCharges
+sum(is.na(telecom_churn_data $TotalCharges))  
+
+```
+
+#Exploratory Data Analysis
+
+
+In this section, we will perform Exploratory Data Analysis (EDA) to prepare the dataset for survival analysis. Our goal is to understand the data thoroughly, identify key features, and ensure the dataset is well-prepared for subsequent analysis.
+
+
+
+```{r}
+# Group 1 Variables
+# Select categorical variables related to customer demographics and service usage
+categorical_columns_1 <- telecom_churn_data %>%
+  select(gender, SeniorCitizen, Partner, PhoneService) %>%
+  mutate(across(everything(), as.factor))  # Convert all selected columns to factors
+
+# Pivot longer to reshape data for plotting
+categorical_long_1 <- categorical_columns_1 %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+# Plot the distribution of categorical variables in Group 1
+ggplot(categorical_long_1, aes(x = Value)) +
+  geom_bar(fill = "steelblue") +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +  # Create separate plots for each variable, 2 columns
+  labs(title = "Distribution of Categorical Variables - Group 1", x = "Category", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(2, "lines"))
+
+# Group 2 Variables
+# Select categorical variables related to additional services and features
+categorical_columns_2 <- telecom_churn_data %>%
+  select(MultipleLines, InternetService, OnlineSecurity, OnlineBackup) %>%
+  mutate(across(everything(), as.factor))  # Convert all selected columns to factors
+
+# Pivot longer to reshape data for plotting
+categorical_long_2 <- categorical_columns_2 %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+# Plot the distribution of categorical variables in Group 2
+ggplot(categorical_long_2, aes(x = Value)) +
+  geom_bar(fill = "steelblue") +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +  # Create separate plots for each variable, 2 columns
+  labs(title = "Distribution of Categorical Variables - Group 2", x = "Category", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(2, "lines"))
+
+# Group 3 Variables
+# Select categorical variables related to additional services and support
+categorical_columns_3 <- telecom_churn_data %>%
+  select(DeviceProtection, TechSupport, StreamingTV, StreamingMovies) %>%
+  mutate(across(everything(), as.factor))  # Convert all selected columns to factors
+
+# Pivot longer to reshape data for plotting
+categorical_long_3 <- categorical_columns_3 %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+# Plot the distribution of categorical variables in Group 3
+ggplot(categorical_long_3, aes(x = Value)) +
+  geom_bar(fill = "steelblue") +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +  # Create separate plots for each variable, 2 columns
+  labs(title = "Distribution of Categorical Variables - Group 3", x = "Category", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(2, "lines"))
+
+# Group 4 Variables
+# Select categorical variables related to billing, payment, and churn
+categorical_columns_4 <- telecom_churn_data %>%
+  select(Contract, PaperlessBilling, PaymentMethod, Churn) %>%
+  mutate(across(everything(), as.factor))  # Convert all selected columns to factors
+
+# Pivot longer to reshape data for plotting
+categorical_long_4 <- categorical_columns_4 %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+# Plot the distribution of categorical variables in Group 4
+ggplot(categorical_long_4, aes(x = Value)) +
+  geom_bar(fill = "steelblue") +
+  facet_wrap(~ Variable, scales = "free", ncol = 2) +  # Create separate plots for each variable, 2 columns
+  labs(title = "Distribution of Categorical Variables - Group 4", x = "Category", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.spacing = unit(2, "lines"))
+
+
+```
+
+Now, we will separate the analysis by categorical and continous  Variables
+
+## Continious Variables
+
+```{r}
+#As we have 3 contino  variables
+summary(select(telecom_churn_data, tenure, MonthlyCharges, TotalCharges))
+```
+```{r}
+# Select numerical columns from the dataset, excluding 'SeniorCitizen'
+numerical_columns <- telecom_churn_data %>%
+  select_if(is.numeric) %>%   
+  select(-SeniorCitizen)      
+
+
+for (col_name in names(numerical_columns)) {
+  
+  p <- ggplot(telecom_churn_data, aes(x = .data[[col_name]])) +
+    geom_histogram(fill = "steelblue", bins = 30, alpha = 0.7) + 
+    labs(title = paste("Distribution of", col_name), x = col_name, y = "Count") +  
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5)) 
+
+  print(p)
+}
+
+```
+
+### Distributions of Continious Variables
+```{r}
+# Create a new column 'SeniorCitizenCategory' where 0 = 'No' and 1 = 'Yes'
+telecom_churn_data <- telecom_churn_data %>%
+  mutate(SeniorCitizenCategory = ifelse(SeniorCitizen == 1, "Yes", "No"))
+
+# Subset where Churn is "Yes" (positive)
+positive_df <- telecom_churn_data %>% filter(Churn == "Yes")
+
+# Subset where Churn is "No" (negative)
+negative_df <- telecom_churn_data %>% filter(Churn == "No")
+
+# Loop over each numerical column to plot its distribution for both positive and negative churn
+for (col_name in names(numerical_columns)) {
+  p <- ggplot() +
+    geom_density(data = positive_df, aes_string(x = col_name, color = "'Yes'"), fill = "red", alpha = 0.3) +
+    geom_density(data = negative_df, aes_string(x = col_name, color = "'No'"), fill = "blue", alpha = 0.3) +
+    labs(title = paste("Distribution of", col_name, "by Churn"), x = col_name, y = "Density") +
+    scale_color_manual(name = "Churn", values = c("Yes" = "red", "No" = "blue")) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+
+  print(p)
+}
+```
+Important Insights:
+
+-Subscription Duration: Customers with shorter subscription durations (close to zero) are more likely to churn (indicated by "Yes" for churn). As subscription duration increases, the probability of churn decreases. For customers who do not churn ("No"), there is a peak in longer subscription durations, suggesting that long-term customers are less likely to cancel.
+
+-Monthly Charges: Customers with higher monthly charges are more likely to churn. A higher density of churn is observed among customers with monthly charges between 70 and 100 $. Conversely, those with lower monthly charges are less likely to churn. High monthly charges might be a source of dissatisfaction, potentially leading to higher churn rates. The company could consider offering discounts or alternative plans to customers with high monthly charges to reduce churn.
+
+Total Charges: Customers with lower total charges are more likely to churn. As total charges increase, the probability of churn decreases. This aligns with the subscription duration pattern, as customers with lower total charges likely have shorter subscription duration, leading to higher churn rates.
+
+
+### Correlation Analysis
+We aim, now to explore the relationships between key numerical variables to understand their correlations. To achieve this, we will calculate and visualize the correlation matrix for selected numerical variables, which will help us identify the strength and direction of relationships between them.
+
+```{r}
+numerical_data <- select(telecom_churn_data, tenure, MonthlyCharges, TotalCharges)
+cor_num_matrix <- cor(numerical_data, use = "complete.obs")
+
+print(cor_num_matrix)
+
+ggcorrplot(cor_num_matrix,
+           method = "circle",      
+           type = "full",           
+           lab = TRUE,               
+           colors = c("blue", "white", "red"), 
+           lab_size = 4,              
+           tl.cex = 12,              
+           p.mat = NULL,                      
+           title = "Correlation Matrix for numerical vraiables"
+)
+
+```
+Due to the high correlation between TotalCharges and the other two variables (tenure and MonthlyCharges), including TotalCharges in the analysis might lead to multicollinearity issues. Therefore, it may be appropriate to exclude TotalCharges from further analysis to avoid redundancy and to better isolate the effects of tenure and MonthlyCharges on the outcome variable.
+
+
+## Continious Variables
+
+```{r}
+categorical_columns <- telecom_churn_raw %>%
+  select_if(is.character)      # Select columns with character data types
+
+# Loop over each categorical column to plot its distribution by Churn
+for (col_name in names(categorical_columns)) {
+  p <- ggplot(telecom_churn_raw, aes_string(x = col_name, fill = "Churn")) +
+    geom_bar(position = "dodge", alpha = 0.7) +
+    labs(title = paste("Distribution of", col_name, "by Churn"), x = col_name, y = "Count") +
+    scale_fill_manual(name = "Churn", values = c("Yes" = "red", "No" = "blue")) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+
+  print(p)
+}
+
+
+```
+Partner: Customers without a partner have a higher churn rate, suggesting single individuals are more likely to leave.
+
+Dependents: Customers without dependents also exhibit higher churn, indicating family responsibilities may help with customer retention.
+
+PhoneService: Customers with phone service experience lower churn rates compared to those without.
+
+MultipleLines: Customers without multiple lines or phone service tend to have higher churn rates, suggesting they may not find enough value in the service.
+
+InternetService: Fiber optic users have a higher churn rate compared to DSL or no internet service users.
+
+OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport: Absence of these services is linked to higher churn, implying their importance in customer retention.
+
+Streaming TV: While streaming TV seems to help with retention, it’s not a decisive factor as many with this service still churn.
+
+Streaming Movies: Streaming movies contribute to retention but are not enough alone to prevent churn.
+
+Contract Type: Long-term contracts (2 years) are associated with lower churn, whereas month-to-month contracts lead to higher churn.
+
+Billing Method: Electronic billing correlates with higher churn compared to paper billing, suggesting a potential lack of engagement or perception issues.
+
+Payment Method: Automatic payment methods (bank transfers, credit cards) are linked to lower churn, whereas electronic checks are associated with higher churn.
+
+Senior Citizen: Senior citizens are less likely to churn compared to non-seniors, with most churn occurring among non-seniors.
+
+
+### Chi-Square Test.
+
+We plan to use the Chi-square test to analyze the relationship between categorical factors and churn. This will help us identify significant predictors with the highest impact on churn, allowing us to streamline our analysis.
+
+```{r}
+
+data_cat <- telecom_churn_data %>% mutate_if(is.character, as.factor)
+
+
+categorical_vars <- names(telecom_churn_data)[sapply(data_cat, is.factor)]
+categorical_vars <- setdiff(categorical_vars, "Churn") 
+
+chisq_test_results <- lapply(categorical_vars, function(col) {
+
+  contingency_table <- table(telecom_churn_data[[col]], data_cat$Churn)
+
+  test_result <- chisq.test(contingency_table)
+
+  return(test_result$p.value)
+})
+
+# Combine the variable names with their corresponding p-values
+chisq_pvalues <- data.frame(
+  Variable = categorical_vars,
+  P_Value = unlist(chisq_test_results)
+)
+
+# Determine which variables are significantly associated with 'Churn' (e.g., p-value < 0.05)
+significant_vars <- chisq_pvalues %>% filter(P_Value < 1e-90)
+print(significant_vars)
+num_significant_vars <- nrow(significant_vars)
+print(num_significant_vars)
+
+```
+The Chi-square test results indicate that variables with extremely low p-values are highly significant predictors of churn. Specifically, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, Contract, and PaymentMethod all show exceptionally small p-values, suggesting a strong association with Churn. This implies that these factors are crucial for understanding and predicting churn behavior. Consequently, these significant predictors should be retained in the analysis to focus on the most impactful variables.
+
+
+
+Data Reduction:
+Therefore, our final filtered dataset will exclude all variables except:InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, Contract, and PaymentMethod and SeniorCitizen and MonthlyCharges, which will be included in the analysis of continuous variables.
+
+
+```{r}
+print(significant_vars)
+telecom_churn_data <- telecom_churn_data %>% select(-SeniorCitizenCategory)
+significant_vars <- significant_vars %>% filter(Variable != "SeniorCitizenCategory")
+filtered_data <- telecom_churn_data %>% select(all_of(significant_vars$Variable), Churn)  
+
+numerical_vars <- telecom_churn_data %>% select(where(is.numeric))
+nrow(filtered_data)   # Check number of rows in filtered_data
+nrow(numerical_vars)  # Check number of rows in numerical_vars
+
+filtered_data <- filtered_data %>% bind_cols(numerical_vars)
+
+head(filtered_data)
+```
+
+```{r}
+# Remove the 'TotalCharges' column from the dataset
+telecom_churn_filtered <- filtered_data %>% select(-TotalCharges)
+
+print(head(telecom_churn_data))
+```
+
+
+
+
+# Survival Analysis:
+
+
+## Nnonparametric estimation of survival 
+
+### Kaplan-Meier Estimation for all the dataset (all clients)
+```{r}
+
+filtered_data$Churn <- ifelse(filtered_data$Churn == "Yes", 1, 0)
+
+surv_object <- Surv(time = filtered_data$tenure, event = filtered_data$Churn)
+
+
+km_fit <- survfit(surv_object ~ 1, data = filtered_data)
+
+ggsurvplot(km_fit, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curve")
+
+```
+
+The Kaplan-Meier survival curve shows the probability of customers staying with the company over time. Starting at 1 (100% retention), the probability gradually decreases as customers leave. By around 40 months, the survival probability drops to 0.75, meaning 75% of customers remain, while 25% have churned. The shaded area indicates the confidence interval, representing the uncertainty in these estimates.
+#Kaplan-Meier Estimation for Multiple Groups.
+
+
+#### 1-Kaplan-Meier Estimation for Different Contract Types
+
+```{r}
+
+km_fit_contract <- survfit(surv_object ~ Contract, data = filtered_data)
+
+ggsurvplot(km_fit_contract, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by Contract Type",
+           legend.title = "Contract Type")
+```
+The Kaplan-Meier survival curve highlights the significant impact of contract type on customer retention. Customers with month-to-month contracts (red curve) show the highest churn rate, starting from the earliest months. In contrast, those with one-year contracts (green curve) have better retention, though their survival probability decreases gradually. Customers with two-year contracts (blue curve) have the highest retention, with their survival probability remaining elevated for a longer period. This suggests that longer-term contracts are more effective in promoting customer retention.
+
+
+#### 2-Kaplan-Meier Estimation for Different InternetService Types
+
+```{r}
+km_fit_internet <- survfit(surv_object ~ InternetService, data = filtered_data)
+
+ggsurvplot(km_fit_internet, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by Internet Service Type",
+           legend.title = "Internet Service")
+
+```
+The Kaplan-Meier survival curve reveals that customers with fiber optic internet have the highest churn rate, whereas those without internet service show the best retention, maintaining a more stable survival probability over time.
+
+ 
+
+#### 3-Kaplan-Meier Estimation for Different PaymentMethod Types
+
+```{r}
+km_fit_payment <- survfit(surv_object ~ PaymentMethod, data = filtered_data)
+
+ggsurvplot(km_fit_payment, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by Payment Method",
+           legend.title = "Payment Method")
+
+```
+#The Kaplan-Meier survival curve shows that customers using electronic checks as their payment method cancel their subscriptions more quickly than those using other methods.
+
+
+#### 4- Kaplan-Meier Estimation for  techsupport 
+
+```{r}
+km_fit_techsupp <- survfit(surv_object ~ TechSupport, data = filtered_data)
+
+ggsurvplot(km_fit_techsupp, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by TechSupport",
+           legend.title = "TechSupport")
+```
+
+The Kaplan-Meier survival curve shows that customers without technical support are more likely to leave the company, while those with technical support have better retention. Customers without internet service have the best retention, indicating a low churn rate.
+
+```{r}
+
+km_fit_OnlineSecurity <- survfit(surv_object ~ OnlineSecurity, data = filtered_data)
+
+ggsurvplot(km_fit_OnlineSecurity, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by OnlineSecurity",
+           legend.title = "OnlineSecurity")
+
+```
+The Kaplan-Meier survival curve shows that customers without online security services (OnlineSecurity=No) have a significantly higher churn rate, with a rapid decline in survival probability over time. In contrast, customers who benefit from online security services (OnlineSecurity=Yes) exhibit better retention, with a more stable survival curve. Finally, customers without internet service (OnlineSecurity=No internet service) have the highest probability of staying, indicating a very low churn rate.
+
+```{r}
+
+
+km_fit_OnlineBackup <- survfit(surv_object ~ OnlineBackup, data = filtered_data)
+
+ggsurvplot(km_fit_OnlineBackup, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by OnlineBackup",
+           legend.title = "OnlineBackup")
+```
+The Kaplan-Meier survival curve shows the impact of having an online backup service on customer retention. Customers without online backup services (OnlineBackup=No) have a significantly higher churn rate, indicated by a steep decline in survival probability over time. In contrast, customers with online backup services (OnlineBackup=Yes) demonstrate better retention, with a more gradual decline in survival probability. Additionally, those without internet service (OnlineBackup=No internet service) have the highest retention, showing the lowest churn rate among all groups.
+
+
+```{r}
+
+km_fit_SeniorCitizen <- survfit(surv_object ~ SeniorCitizen, data = filtered_data)
+
+ggsurvplot(km_fit_SeniorCitizen, 
+           conf.int = TRUE, 
+           ggtheme = theme_minimal(),
+           xlab = "Time in Months",
+           ylab = "Survival Probability",
+           title = "Kaplan-Meier Survival Curves by SeniorCitizen",
+           legend.title = "SeniorCitizen")
+
+```
+
+When performing Kaplan-Meier estimation for different groups (such as contract types or internet services), you estimate the survival curve for each group separately, providing a visual representation of how survival probability, or the risk of churn, changes over time for each group.
+
+
+
+## Nonparametric comparison of 2 or more groups using (log_rank)
+
+The Log-Rank test then compares these survival curves to determine if the observed differences are statistically significant, indicating whether they are likely due to chance or represent real differences between the groups.
+
+```{r}
+log_rank_contract <- survdiff(surv_object ~ Contract, data = filtered_data)
+
+print(log_rank_contract)
+```
+
+#Contract Type the analysis shows that longer contract commitments (one year or two years) are associated with lower churn rates. This suggests that customers who commit to longer contracts are more likely to stay with the service than customers with  short term contarct.
+
+```{r}
+
+log_rank_SeniorCitizen <- survdiff(surv_object ~ SeniorCitizen, data = filtered_data)
+print(log_rank_SeniorCitizen)
+
+```
+
+```{r}
+log_rank_paymentmethode <- survdiff(surv_object ~ PaymentMethod, data = filtered_data)
+print(log_rank_paymentmethode)
+```
+ 
+#Payment Method:the results suggest that customers who use electronic checks are more likely to leave the service compared to those using other payment methods.
+ 
+
+```{r}
+log_rank_internetservices <- survdiff(surv_object ~ InternetService, data = filtered_data)
+print(log_rank_internetservices)
+
+```
+#Internet Service:the analysis suggests that fiber optic customers are more likely to churn compared to DSL or no internet service customers.
+ 
+
+
+```{r}
+log_rank_TechSupport <- survdiff(surv_object ~ TechSupport, data = filtered_data)
+print(log_rank_TechSupport)
+
+```
+Tech Support: Customers with tech support have significantly lower churn rates. Those without tech support are much more likely to leave, as indicated by the high number of observed churns. The difference in churn rates is highly significant (p < 2e-16).
+
+```{r}
+
+log_rank_OnlineSecurity <- survdiff(surv_object ~ OnlineSecurity, data = filtered_data)
+print(log_rank_OnlineSecurity)
+```
+#Online Security:providing online security is associated with lower churn rates. Customers with online security are less likely to leave the service
+ 
+
+
+```{r}
+
+log_rank_OnlineBackup <- survdiff(surv_object ~ OnlineBackup, data = filtered_data)
+print(log_rank_OnlineBackup)
+
+```
+#Online BackupCustomers with online backup services tend to stay with the service longer compared to those without.
+ 
+
+```{r}
+
+
+log_rank_DeviceProtection <- survdiff(surv_object ~ DeviceProtection, data = filtered_data)
+print(log_rank_DeviceProtection)
+
+```
+#Device Protection:device protection is associated with lower churn rates. Customers who have device protection are less likely to cancel their service
+
+
+
+
+### Semi-parametric Cox regression Hazard Model:
+
+Observing that the survival curves for various services provided by the company show similar patterns, we decided to examine the correlations among these factors to understand their impact on the Cox regression model. We performed labeling and one-hot encoding on the categorical data, followed by calculating the correlation matrix. 
+
+We have retained only the TechSupport variable, excluding DeviceProtection, OnlineSecurity, and OnlineBackup due to their high correlation with each other.
+
+we're including in the cox model. The model will estimate how each of these factors influences the hazard (risk) of the event (customer churn).
+
+```{r}
+cox_model <- coxph(surv_object ~ Contract + MonthlyCharges + InternetService + SeniorCitizen +TechSupport +PaymentMethod, data = filtered_data)
+
+summary(cox_model)
+
+```
+
+#### Schoenfeld residuals
+```{r}
+schoenfeld_residuals <- residuals(cox_model, type = "schoenfeld")
+head(schoenfeld_residuals)
+```
+
+
+```{r}
+cox_zph <- cox.zph(cox_model)
+zph_plot <- ggcoxzph(
+  cox_zph,
+  resid = TRUE,
+  se = TRUE,
+  df = 4,
+  nsmo = 40,
+  point.col = "red",
+  point.size = 1,
+  point.shape = 19,
+  point.alpha = 1,
+  ggtheme = theme_survminer(),
+  font.main = 10,
+  font.x=10,
+  font.y=7 # Add this line to change the font size
+)
+
+# Display the plot
+print(zph_plot)
+
+
+```
+
+Contracts: Longer-term contracts (one or two years) significantly reduce the risk of churn, with two-year contracts having the most substantial impact.
+
+Internet Service: Fiber optic service increases churn risk, potentially due to competition or customer dissatisfaction. Conversely, not having internet service is associated with lower churn, possibly because these customers are less likely to switch providers.
+
+Monthly Charges: Higher monthly charges are slightly associated with reduced churn, suggesting that higher payments may correlate with greater commitment or satisfaction.
+
+Tech Support: Providing tech support significantly decreases the likelihood of churn.
+
+Payment Methods: Customers using electronic or mailed checks are more likely to churn compared to those with automatic payment methods, likely due to the convenience of automatic payments.
+
+Statistical Significance: The p-values indicate the significance of each variable’s effect on churn. Variables with p-values below 0.05 are considered statistically significant. In this case, all variables except SeniorCitizen and PaymentMethodCredit card (automatic) have p-values well below 0.05, highlighting their significant impact on churn risk.
+
+Marginal Effect: In the Cox model, controlling for other factors might reduce the apparent impact of being a senior citizen on churn, indicating that its effect is less pronounced when other variables are considerable.
+
+
+#Conclusion:
+
+This project analyzed Telco Customer Churn data using survival analysis to identify key factors influencing customer retention. The findings show that longer customer tenures and longer-term contracts (one-year or two-year) significantly reduce churn, highlighting the importance of long-term loyalty. Higher monthly charges are associated with increased churn, possibly due to customer dissatisfaction or financial strain. Services such as tech support, online security, and backup contribute to better retention, while fiber optic internet service correlates with higher churn rates. Payment methods also impact retention, with electronic checks linked to higher churn compared to automatic payments. Based on these insights, Telco should focus on promoting longer-term contracts, enhancing service offerings, and incentivizing automatic payments to improve customer retention and loyalty.
+
+
