@@ -1,0 +1,1 @@
+The file `Survival_analysis_report_groupe8.pdf` contains the methodology and various survival analysis methods applied, along with their interpretations. Please take the time to review this document for a comprehensive understanding of the analyses performed.
